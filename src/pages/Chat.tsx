@@ -1,4 +1,6 @@
+// Chat.tsx (updated with new CSS design)
 import { useState, useEffect, useRef } from "react";
+// Using fetch API instead of axios for API calls
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +19,8 @@ import {
   Clock,
   Tag,
   Phone,
-  Mail
+  Mail,
+  AlertCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -75,40 +78,6 @@ const mockCustomers: Customer[] = [
   }
 ];
 
-const mockMessages: Message[] = [
-  {
-    id: "1",
-    role: "user",
-    content: "Hi, I'm having trouble with my recent order. Can you help?",
-    timestamp: new Date(Date.now() - 10 * 60 * 1000)
-  },
-  {
-    id: "2", 
-    role: "assistant",
-    content: "I'd be happy to help you with your order! Let me look that up for you. Can you please provide your order number?",
-    timestamp: new Date(Date.now() - 9 * 60 * 1000),
-    metadata: {
-      quick_replies: ["Check Order Status", "Contact Support", "Return Item"],
-      source: "RAG: Order Management KB"
-    }
-  },
-  {
-    id: "3",
-    role: "user", 
-    content: "My order number is #ORD-2024-001234",
-    timestamp: new Date(Date.now() - 8 * 60 * 1000)
-  },
-  {
-    id: "4",
-    role: "assistant",
-    content: "Perfect! I found your order #ORD-2024-001234. It was shipped yesterday and should arrive by tomorrow. You can track it using tracking number TRK789456123. Is there anything specific about the order you need help with?",
-    timestamp: new Date(Date.now() - 7 * 60 * 1000),
-    metadata: {
-      quick_replies: ["Track Package", "Change Address", "Cancel Order"]
-    }
-  }
-];
-
 const quickReplies = [
   "How can I help you today?",
   "Let me check your order status",
@@ -119,10 +88,11 @@ const quickReplies = [
 
 export default function Chat() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer>(mockCustomers[0]);
-  const [messages, setMessages] = useState<Message[]>(mockMessages);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -136,6 +106,9 @@ export default function Chat() {
   const handleSendMessage = async () => {
     if (!newMessage.trim()) return;
 
+    // Clear any previous errors
+    setError(null);
+
     const userMessage: Message = {
       id: Date.now().toString(),
       role: "user",
@@ -144,24 +117,73 @@ export default function Chat() {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const messageToSend = newMessage;
     setNewMessage("");
     setIsTyping(true);
 
-    // Simulate AI response
-    setTimeout(() => {
-      const assistantMessage: Message = {
+    try {
+      const response = await fetch('http://localhost:8000/process-web-chat/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: messageToSend,
+          context: { 
+            email: selectedCustomer.email || 'user@example.com',
+            customer_id: selectedCustomer.id,
+            customer_name: selectedCustomer.name
+          }
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.status === 'success') {
+        const assistantMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant", 
+          content: data.response,
+          timestamp: new Date(),
+          metadata: {
+            quick_replies: ["Tell me more", "That's helpful", "I need different help"],
+            source: "FastAPI Backend"
+          }
+        };
+        setMessages(prev => [...prev, assistantMessage]);
+      } else {
+        // Handle error response from backend
+        const errorMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant", 
+          content: data.message || "I'm sorry, I encountered an error processing your request.",
+          timestamp: new Date(),
+          metadata: {
+            source: "Error Response"
+          }
+        };
+        setMessages(prev => [...prev, errorMessage]);
+      }
+    } catch (error) {
+      console.error('Error calling backend:', error.message);
+      
+      // Set error state for UI display
+      setError('Failed to connect to the server. Please try again.');
+      
+      // Add error message to chat
+      const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant", 
-        content: "I understand your question. Let me help you with that. Based on our knowledge base, here's what I can tell you...",
+        content: "I'm sorry, I'm having trouble connecting to my backend services right now. Please try again in a moment.",
         timestamp: new Date(),
         metadata: {
-          quick_replies: ["Tell me more", "That's helpful", "I need different help"],
-          source: "RAG: Customer Support KB"
+          source: "Connection Error"
         }
       };
-      setMessages(prev => [...prev, assistantMessage]);
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
       setIsTyping(false);
-    }, 2000);
+    }
   };
 
   const handleQuickReply = (reply: string) => {
@@ -274,8 +296,14 @@ export default function Chat() {
               <div className="flex items-center space-x-2">
                 <Badge variant="outline">
                   <MessageSquare className="h-3 w-3 mr-1" />
-                  Web Chat
+                  FastAPI Chat
                 </Badge>
+                {error && (
+                  <Badge variant="destructive">
+                    <AlertCircle className="h-3 w-3 mr-1" />
+                    Connection Error
+                  </Badge>
+                )}
               </div>
             </div>
           </div>
@@ -371,7 +399,7 @@ export default function Chat() {
             </div>
           </ScrollArea>
 
-          {/* Quick Replies */}
+          {/* Quick Replies and Message Input */}
           <div className="p-4 border-t border-border bg-card/30">
             <div className="flex flex-wrap gap-2 mb-3">
               {quickReplies.map((reply, index) => (
@@ -396,11 +424,22 @@ export default function Chat() {
                 placeholder="Type your message..."
                 onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
                 className="flex-1"
+                disabled={isTyping}
               />
-              <Button onClick={handleSendMessage} disabled={!newMessage.trim() || isTyping}>
+              <Button 
+                onClick={handleSendMessage} 
+                disabled={!newMessage.trim() || isTyping}
+              >
                 <Send className="h-4 w-4" />
               </Button>
             </div>
+            
+            {error && (
+              <div className="mt-2 text-sm text-destructive flex items-center">
+                <AlertCircle className="h-4 w-4 mr-1" />
+                {error}
+              </div>
+            )}
           </div>
         </div>
 

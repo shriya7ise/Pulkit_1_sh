@@ -1,33 +1,6 @@
 import { Layer1Customer } from "./useLayer1Data";
 
 // Advanced analytics transformations for Layer1 data
-export const getAffinityAnalysis = (data: Layer1Customer[]) => {
-  if (!data) return [];
-  
-  const categories = [
-    { name: 'Electronics', key: 'electronics_affinity' },
-    { name: 'Fashion', key: 'fashion_affinity' },
-    { name: 'Home', key: 'home_affinity' },
-    { name: 'Beauty', key: 'beauty_affinity' },
-    { name: 'Sports', key: 'sports_affinity' },
-    { name: 'Books', key: 'books_affinity' }
-  ];
-
-  return categories.map(category => {
-    const avgAffinity = data.reduce((sum, customer) => 
-      sum + (customer[category.key as keyof Layer1Customer] as number || 0), 0) / data.length;
-    
-    const highAffinityCount = data.filter(customer => 
-      (customer[category.key as keyof Layer1Customer] as number || 0) > 0.7).length;
-    
-    return {
-      category: category.name,
-      avgAffinity: Math.round(avgAffinity * 100),
-      highAffinityCustomers: highAffinityCount,
-      percentage: Math.round((highAffinityCount / data.length) * 100)
-    };
-  });
-};
 
 export const getTrafficSourceAnalysis = (data: Layer1Customer[]) => {
   if (!data) return [];
@@ -185,3 +158,220 @@ export const getSeasonalAnalysis = (data: Layer1Customer[]) => {
     avgSpent: month.peakShoppers > 0 ? Math.round(month.avgSpent / month.peakShoppers) : 0
   }));
 };
+
+export const getIndianDemographics = (data: Layer1Customer[]) => {
+  if (!data || data.length === 0) return null;
+
+  const stateCounts = {} as Record<string, number>;
+  const ageCounts = {} as Record<string, number>;
+  const genderCounts = {} as Record<string, number>;
+  const incomeCounts = {} as Record<string, number>;
+  const cityTierCounts = {} as Record<string, number>;
+  const languageCounts = {} as Record<string, number>;
+
+  data.forEach(customer => {
+    const state = customer.city ? mapCityToState(customer.city) : 'Unknown';
+    stateCounts[state] = (stateCounts[state] || 0) + 1;
+
+    const age = customer.age;
+    let ageGroup = 'Unknown';
+    if (typeof age === 'number') {
+      if (age >= 18 && age <= 24) ageGroup = '18-24';
+      else if (age >= 25 && age <= 34) ageGroup = '25-34';
+      else if (age >= 35 && age <= 44) ageGroup = '35-44';
+      else if (age >= 45 && age <= 54) ageGroup = '45-54';
+      else if (age >= 55 && age <= 64) ageGroup = '55-64';
+      else if (age >= 65) ageGroup = '65+';
+    }
+    ageCounts[ageGroup] = (ageCounts[ageGroup] || 0) + 1;
+
+    const gender = customer.gender ? customer.gender.charAt(0).toUpperCase() + customer.gender.slice(1).toLowerCase() : 'Unknown';
+    genderCounts[gender] = (genderCounts[gender] || 0) + 1;
+
+    const income = customer.income_bracket || 'Unknown';
+    incomeCounts[income] = (incomeCounts[income] || 0) + 1;
+
+    const cityTier = determineCityTier(customer.city);
+    cityTierCounts[cityTier] = (cityTierCounts[cityTier] || 0) + 1;
+
+    const language = determineLanguage(customer.city) || 'Hindi';
+    languageCounts[language] = (languageCounts[language] || 0) + 1;
+  });
+
+  const totalCustomers = data.length;
+  const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#84cc16', '#f97316'];
+
+  const stateDistribution = Object.entries(stateCounts)
+    .map(([state, count], index) => ({
+      state,
+      customers: count,
+      percentage: ((count / totalCustomers) * 100).toFixed(1),
+      color: COLORS[index % COLORS.length]
+    }))
+    .sort((a, b) => b.customers - a.customers)
+    .slice(0, 8);
+
+  const ageDistribution = Object.entries(ageCounts).map(([ageGroup, count]) => ({
+    ageGroup,
+    customers: count,
+    percentage: ((count / totalCustomers) * 100).toFixed(1)
+  }));
+
+  const genderDistribution = Object.entries(genderCounts).map(([gender, count]) => ({
+    gender,
+    customers: count,
+    percentage: ((count / totalCustomers) * 100).toFixed(1),
+    color: gender === 'Male' ? '#3b82f6' : gender === 'Female' ? '#10b981' : '#6b7280'
+  }));
+
+  const incomeDistribution = Object.entries(incomeCounts).map(([bracket, count]) => ({
+    bracket,
+    customers: count,
+    percentage: ((count / totalCustomers) * 100).toFixed(1)
+  }));
+
+  const cityTierDistribution = Object.entries(cityTierCounts).map(([tier, count], index) => ({
+    tier,
+    customers: count,
+    percentage: ((count / totalCustomers) * 100).toFixed(1),
+    color: COLORS[index % COLORS.length]
+  }));
+
+  const languageDistribution = Object.entries(languageCounts).map(([language, count]) => ({
+    language,
+    customers: count,
+    percentage: ((count / totalCustomers) * 100).toFixed(1)
+  }));
+
+  const dominantAge = ageDistribution.reduce((max, current) => 
+    current.customers > max.customers ? current : max, { customers: 0, ageGroup: 'Unknown', percentage: '0' });
+  
+  const dominantIncome = incomeDistribution.reduce((max, current) => 
+    current.customers > max.customers ? current : max, { customers: 0, bracket: 'Unknown', percentage: '0' });
+  
+  const topStateEntry = stateDistribution[0] || { state: 'Unknown', percentage: '0' };
+  
+  const maleCount = genderCounts['Male'] || 0;
+  const femaleCount = genderCounts['Female'] || 0;
+  const totalGendered = maleCount + femaleCount;
+  const malePercentage = totalGendered > 0 ? ((maleCount / totalGendered) * 100).toFixed(1) : '0';
+
+  return {
+    stateDistribution,
+    ageDistribution,
+    genderDistribution,
+    incomeDistribution,
+    cityTierDistribution,
+    languageDistribution,
+    dominantAgeGroup: dominantAge.ageGroup,
+    dominantAgePercentage: dominantAge.percentage,
+    dominantIncomeRange: dominantIncome.bracket,
+    dominantIncomePercentage: dominantIncome.percentage,
+    topState: topStateEntry.state,
+    topStatePercentage: topStateEntry.percentage,
+    totalMalePercentage: malePercentage
+  };
+};
+
+function mapCityToState(city: string): string {
+  if (!city) return 'Unknown';
+  
+  const cityToStateMap: Record<string, string> = {
+    'mumbai': 'Maharashtra',
+    'pune': 'Maharashtra',
+    'nagpur': 'Maharashtra',
+    'nashik': 'Maharashtra',
+    'aurangabad': 'Maharashtra',
+    'bangalore': 'Karnataka',
+    'mysore': 'Karnataka',
+    'mangalore': 'Karnataka',
+    'hubli': 'Karnataka',
+    'belgaum': 'Karnataka',
+    'delhi': 'Delhi NCR',
+    'new delhi': 'Delhi NCR',
+    'gurgaon': 'Delhi NCR',
+    'gurugram': 'Delhi NCR',
+    'noida': 'Delhi NCR',
+    'faridabad': 'Delhi NCR',
+    'ghaziabad': 'Delhi NCR',
+    'chennai': 'Tamil Nadu',
+    'coimbatore': 'Tamil Nadu',
+    'madurai': 'Tamil Nadu',
+    'salem': 'Tamil Nadu',
+    'tiruchirappalli': 'Tamil Nadu',
+    'hyderabad': 'Telangana',
+    'warangal': 'Telangana',
+    'nizamabad': 'Telangana',
+    'kolkata': 'West Bengal',
+    'howrah': 'West Bengal',
+    'durgapur': 'West Bengal',
+    'siliguri': 'West Bengal',
+    'ahmedabad': 'Gujarat',
+    'surat': 'Gujarat',
+    'vadodara': 'Gujarat',
+    'rajkot': 'Gujarat',
+    'bhavnagar': 'Gujarat',
+    'jaipur': 'Rajasthan',
+    'jodhpur': 'Rajasthan',
+    'udaipur': 'Rajasthan',
+    'kota': 'Rajasthan',
+    'ajmer': 'Rajasthan',
+    'lucknow': 'Uttar Pradesh',
+    'kanpur': 'Uttar Pradesh',
+    'agra': 'Uttar Pradesh',
+    'varanasi': 'Uttar Pradesh',
+    'meerut': 'Uttar Pradesh',
+    'bhopal': 'Madhya Pradesh',
+    'indore': 'Madhya Pradesh',
+    'gwalior': 'Madhya Pradesh',
+    'jabalpur': 'Madhya Pradesh'
+  };
+  
+  const cityLower = city.toLowerCase().trim();
+  return cityToStateMap[cityLower] || 'Others';
+}
+
+function determineCityTier(city: string): string {
+  if (!city) return 'Tier 3+ Cities';
+  
+  const tier1Cities = [
+    'mumbai', 'delhi', 'new delhi', 'bangalore', 'hyderabad', 'chennai', 
+    'kolkata', 'pune', 'ahmedabad'
+  ];
+  
+  const tier2Cities = [
+    'jaipur', 'lucknow', 'kanpur', 'nagpur', 'indore', 'thane', 'bhopal', 
+    'visakhapatnam', 'pimpri', 'patna', 'vadodara', 'ghaziabad', 'ludhiana', 
+    'agra', 'nashik', 'faridabad', 'meerut', 'rajkot', 'kalyan', 'vasai', 
+    'varanasi', 'srinagar', 'aurangabad', 'dhanbad', 'amritsar', 'allahabad', 
+    'ranchi', 'howrah', 'coimbatore', 'jabalpur', 'gwalior', 'vijayawada', 
+    'jodhpur', 'madurai', 'raipur', 'kota', 'chandigarh', 'guwahati', 'mysore', 
+    'tiruchirappalli', 'bareilly', 'aligarh', 'tiruppur', 'gurgaon', 'gurugram', 
+    'noida', 'salem', 'mira', 'thiruvananthapuram', 'bhiwandi', 'saharanpur', 
+    'gorakhpur', 'guntur', 'bikaner', 'amravati', 'noida', 'jamshedpur', 
+    'bhilai', 'warangal', 'cuttack', 'firozabad', 'kochi'
+  ];
+  
+  const cityLower = city.toLowerCase().trim();
+  
+  if (tier1Cities.includes(cityLower)) return 'Tier 1 Cities';
+  if (tier2Cities.includes(cityLower)) return 'Tier 2 Cities';
+  return 'Tier 3+ Cities';
+}
+
+function determineLanguage(city: string): string {
+  if (!city) return 'Hindi';
+  
+  const cityLower = city.toLowerCase().trim();
+  
+  if (['mumbai', 'pune', 'nagpur', 'nashik', 'aurangabad'].includes(cityLower)) return 'Marathi';
+  if (['bangalore', 'mysore', 'mangalore', 'hubli', 'belgaum'].includes(cityLower)) return 'Kannada';
+  if (['chennai', 'coimbatore', 'madurai', 'salem', 'tiruchirappalli'].includes(cityLower)) return 'Tamil';
+  if (['hyderabad', 'warangal', 'vijayawada', 'guntur'].includes(cityLower)) return 'Telugu';
+  if (['kolkata', 'durgapur', 'siliguri', 'howrah'].includes(cityLower)) return 'Bengali';
+  if (['ahmedabad', 'surat', 'vadodara', 'rajkot', 'bhavnagar'].includes(cityLower)) return 'Gujarati';
+  if (['thiruvananthapuram', 'kochi'].includes(cityLower)) return 'Malayalam';
+  if (['guwahati'].includes(cityLower)) return 'Assamese';
+  
+  return 'Hindi';
+}
